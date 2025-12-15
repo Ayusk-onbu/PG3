@@ -1,4 +1,3 @@
-#include <Windows.h>
 #include <iostream>
 #include <list>
 
@@ -34,17 +33,17 @@ int main() {
 	yamanoteLine.push_back("Yurakucho");
 
 	std::cout << "1970-----------------------------" << std::endl;
-	for (auto* lineName : yamanoteLine) {
+	for (auto& lineName : yamanoteLine) {
 		std::cout << lineName << std::endl;
 	}
 
 	// 1971年に西日暮里駅が開業
-	std::list <const char*>::iterator it = yamanoteLine.begin();
+	auto it = yamanoteLine.begin();
 	std::advance(it, 7);
 	yamanoteLine.insert(it, "Nishi-Nippori");
 
 	std::cout << "2019-----------------------------" << std::endl;
-	for (auto* lineName : yamanoteLine) {
+	for (auto& lineName : yamanoteLine) {
 		std::cout << lineName << std::endl;
 	}
 
@@ -54,7 +53,7 @@ int main() {
 	yamanoteLine.insert(it, "Takanawa Gateway");
 
 	std::cout << "2022-----------------------------" << std::endl;
-	for (auto* lineName : yamanoteLine) {
+	for (auto& lineName : yamanoteLine) {
 		std::cout << lineName << std::endl;
 	}
 	return 0;
