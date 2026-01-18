@@ -1,5 +1,6 @@
 #include <Novice.h>
 #include <list>
+#include <vector>
 
 class IStageSceneCommand {
 public:
@@ -19,7 +20,7 @@ class Unit {
 
 public:
 	Unit() = default;
-	void Init(int idref);
+	void Init(int idref); // 初期位置やIDを設定
 	void Update();
 	void Draw();
 
@@ -40,8 +41,9 @@ private:
 
 	int selectMode_;
 
-	Unit* unit_;
-	Unit* selectedUnit_;
+	// 単一 Unit* から複数 Units を参照できるようにする
+	std::vector<Unit*>* units_ = nullptr;
+	Unit* selectedUnit_ = nullptr;
 public:
 	Selector();
 
@@ -56,8 +58,11 @@ public:
 	void SetSelectedUnit(Unit* unit) { selectedUnit_ = unit; }
 	Unit* GetSelectedUnit() const { return selectedUnit_; }
 
-	void SetTargetUnit(Unit* unit) { unit_ = unit; }
-	Unit* GetTargetUnit() const { return unit_; }
+	// 新: ユニット配列の登録
+	void SetUnitList(std::vector<Unit*>* units) { units_ = units; }
+
+	// 現在のセレクター位置にいるユニットを返す（なければ nullptr）
+	Unit* GetUnitAtSelector() const;
 
 	int GetX()const { return mapX_; }
 	int GetY()const { return mapY_; }
@@ -119,7 +124,7 @@ private:
 	char preKeys_[255] = { 0 };
 
 	Selector* selector_;
-	Unit* selectedUnit_;
+	Unit* selectedUnit_ = nullptr;
 
 public:
 	StageSceneInputHandler();
@@ -145,9 +150,17 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	std::list<IStageSceneCommand*> commandHistory;
 
 	Selector* selector = new Selector();
-	Unit* unit = new Unit();
 
-	selector->SetTargetUnit(unit);
+	// 複数ユニットをvectorで管理
+	std::vector<Unit*> units;
+	for (int i = 0; i < 5; ++i) {
+		Unit* u = new Unit();
+		u->Init(i); // 各ユニットの初期位置を設定
+		units.push_back(u);
+	}
+
+	// セレクターにユニット配列を渡す
+	selector->SetUnitList(&units);
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -176,14 +189,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			// SelectUnitCommand の場合は「これから選択されるなら」履歴に残す
 			SelectUnitCommand* selectCmd = dynamic_cast<SelectUnitCommand*>(command);
 			if (selectCmd) {
-				// 現在未選択で、ターゲットユニットが存在かつセレクター位置が一致すれば
+				// 現在未選択で、セレクター位置にユニットがいれば記録
 				if (selector->GetSelectedUnit() == nullptr) {
-					Unit* target = selector->GetTargetUnit();
-					if (target != nullptr && target->GetX() == selector->GetX() && target->GetY() == selector->GetY()) {
+					Unit* target = selector->GetUnitAtSelector();
+					if (target != nullptr) {
 						shouldRecord = true; // 選択アクション（選択状態に遷移）を記録
 					}
 				}
-				// 既に選択中で「解除」する場合は記録しない（要望通り: 選択中のみ記録）
+				// 既に選択中で「解除」する場合は記録しない
 			}
 			else {
 				// それ以外（ユニット移動）は「現在選択中かどうか」で判定
@@ -200,6 +213,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				commandHistory.push_back(command);
 			}
 			else {
+				commandHistory.clear();
 				delete command;
 			}
 		}
@@ -222,8 +236,32 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		/// ↓描画処理ここから
 		///
 
-		unit->Draw();
+		// グリッドを描画（マスサイズ 32）
+		for (int y = 0; y < 720; y += 32) {
+			for (int x = 0; x < 1280; x += 32) {
+				// ワイヤーフレームでマスを描く（薄いグレー風に数値カラーを指定）
+				Novice::DrawBox(x, y, 32, 32, 0.0f, 0x808080, kFillModeWireFrame);
+			}
+		}
+
+		// すべてのユニットを描画
+		for (Unit* u : units) {
+			u->Draw();
+		}
 		selector->Draw();
+
+		// 画面下部に操作説明と Undo 残数を表示
+		int undoCount = static_cast<int>(commandHistory.size());
+		if (selector->GetSelectedUnit() == nullptr) {
+			// 選択していないとき
+			Novice::ScreenPrintf(10, 640, "WASD||arrow keys: move / space key: change unit mode");
+			Novice::ScreenPrintf(10, 680, "In Selector Mode, you cannot use the 'Undo' action.");
+		}
+		else {
+			// 選択しているとき
+			Novice::ScreenPrintf(10, 640, "WASD||arrow keys: move / space key: change selector mode / ctrl+z: undo");
+			Novice::ScreenPrintf(10, 680, "You have %d more 'Undo' actions available.", undoCount);
+		}
 
 		///
 		/// ↑描画処理ここまで
@@ -233,13 +271,21 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		Novice::EndFrame();
 	}
 
+	// メモリ解放
+	for (Unit* u : units) delete u;
+	delete selector;
+	delete inputHandler;
+
 	// ライブラリの終了
 	Novice::Finalize();
 	return 0;
 }
 
 void Unit::Init(int idref) {
-	idref;
+	// 簡易初期配置: id を用いて横に並べる
+	id = idref;
+	mapX_ = 64 + (idref * 64);
+	mapY_ = 64;
 }
 
 void Unit::Update() {
@@ -269,7 +315,7 @@ Selector::Selector() {
 	mapX_ = 0;
 	mapY_ = 0;
 	mapSize_ = 32;
-	unit_ = nullptr;
+	units_ = nullptr;
 	selectedUnit_ = nullptr;
 }
 
@@ -282,7 +328,10 @@ void Selector::Update() {
 }
 
 void Selector::Draw() {
-	Novice::DrawBox(mapX_, mapY_, mapSize_, mapSize_, 0.0f, RED, kFillModeWireFrame);
+	// 選択中はセレクター自体は描画しない（選択解除時にセレクターをユニット位置に戻す処理があるため）
+	if (selectedUnit_ == nullptr) {
+		Novice::DrawBox(mapX_, mapY_, mapSize_, mapSize_, 0.0f, RED, kFillModeWireFrame);
+	}
 }
 
 void Selector::Move(int x, int y) {
@@ -290,17 +339,30 @@ void Selector::Move(int x, int y) {
 	mapY_ += y;
 }
 
+Unit* Selector::GetUnitAtSelector() const {
+	if (units_ == nullptr) return nullptr;
+	for (Unit* u : *units_) {
+		if (u != nullptr && u->GetX() == mapX_ && u->GetY() == mapY_) {
+			return u;
+		}
+	}
+	return nullptr;
+}
+
 void Selector::SelectUnit() {
-	// セレクター位置とターゲットユニットが一致する場合に選択/解除を切り替える
+	// セレクター位置とユニット配列を走査して選択/解除を切り替える
 	if (selectedUnit_ == nullptr) {
-		if (unit_ != nullptr && unit_->GetX() == mapX_ && unit_->GetY() == mapY_) {
-			selectedUnit_ = unit_;
+		Unit* target = GetUnitAtSelector();
+		if (target != nullptr) {
+			selectedUnit_ = target;
 			selectedUnit_->SetSelected(true);
 		}
 	}
 	else {
-		// 既に選択されている場合は解除
+		// 既に選択されている場合は解除してセレクターをユニット位置へ戻す
 		selectedUnit_->SetSelected(false);
+		mapX_ = selectedUnit_->GetX();
+		mapY_ = selectedUnit_->GetY();
 		selectedUnit_ = nullptr;
 	}
 }
